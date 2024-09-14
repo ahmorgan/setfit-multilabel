@@ -1,1 +1,1 @@
-Fine-tuning a setfit model using student reflection data - actual data redacted for reserach ethics purposes
+Fine-tuning a Setfit model for multi-label text classification. Dataset text redacted for research ethics purposes.
