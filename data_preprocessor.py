@@ -60,17 +60,19 @@ def process_data(dataset, file_name) -> None:
         c = csv.writer(f)
         i = -1
         for r in dataset.rows:
-            # skip label row
+            # first row is the labels, special case
             if i == -1:
+                l = [cell.value for cell in r if cell.value is not None]
+                c.writerow(l)
                 i += 1
                 continue
-            l = []
-            for cell in r:
-                if cell.value is not None:
-                    l.append(int(cell.value))
+            # normal case, read 0 and 1 values from dataset and write to csv
+            l = [int(cell.value) for cell in r if cell.value is not None]
             l.append(reflections[i])
             c.writerow(l)
             i += 1
+
+
 
 
 

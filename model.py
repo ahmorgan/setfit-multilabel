@@ -3,6 +3,7 @@ from setfit import SetFitModel, Trainer
 import numpy
 from sklearn.metrics import multilabel_confusion_matrix
 import data_preprocessor
+import csv
 
 
 # Generate a confusion matrix for each label in the dataset. For each column/vector
@@ -12,6 +13,7 @@ import data_preprocessor
 # for each class, a minimally noisy confusion matrix can be created for each label
 def compute_metrics(y_pred, y_true) -> dict[str, float]:
     # confusion_matrices is a list of n-dimensional numpy arrays
+    # list is of size num_labels
     confusion_matrices = multilabel_confusion_matrix(y_true, y_pred)
     # initialize labels
     labels = ["None",
@@ -31,12 +33,12 @@ def compute_metrics(y_pred, y_true) -> dict[str, float]:
     x = 0
     for matrix in confusion_matrices:
         # flatten confusion matrix to list
-        matrix.ravel()
+        matrix = matrix.ravel()
         # populate results with information from the label's confusion matrix
-        result.update({f"{labels[x]}-tp": matrix[0]})
-        result.update({f"{labels[x]}-fn": matrix[1]})
-        result.update({f"{labels[x]}-tn": matrix[2]})
-        result.update({f"{labels[x]}-fp": matrix[3]})
+        result.update({f"{labels[x]}-tn": matrix[0].item()})
+        result.update({f"{labels[x]}-fp": matrix[1].item()})
+        result.update({f"{labels[x]}-fn": matrix[2].item()})
+        result.update({f"{labels[x]}-tp": matrix[3].item()})
         x += 1
         if x >= len(labels):
             break
@@ -51,8 +53,9 @@ def main():
     # multi-label classification using setfit
     # loosely followed https://github.com/NielsRogge/Transformers-Tutorials/blob/master/BERT/Fine_tuning_BERT_(and_friends)_for_multi_label_text_classification.ipynb
 
-    data_preprocessor.process_data("train", "setfit-dataset-train.csv")
-    data_preprocessor.process_data("test", "setfit-dataset-test.csv")
+    # takes raw data from /data and processes it into multi-label confusion matrix for training and testing split
+    data_preprocessor.process_data(dataset="train", file_name="setfit-dataset-train.csv")
+    data_preprocessor.process_data(dataset="test", file_name="setfit-dataset-test.csv")
 
     # load two datasets from csv files in dataset dictionary
     dataset = load_dataset('csv', data_files={
@@ -67,10 +70,13 @@ def main():
     # further preprocess data
     # used guide https://medium.com/@farnazgh73/few-shot-text-classification-on-a-multilabel-dataset-with-setfit-e89504f5fb75 for help here
     # .map takes a method and applies it to each entry in the dataset
-    # the lambda method converts the label:value pairs in the original dataset to one label
-    # ex. [Time Management: 0, Python and Coding: 1] becomes [0, 1]
+    # the lambda method converts the entries in the dataset to encoded labels
+    # ex. {"Time Management":0, "Python and Coding": 1} becomes {"label": [0,1]} (not a real example, just to illustrate what's happening)
     dataset["train"] = dataset["train"].map(lambda entry: {"label": [entry[label] for label in labels]})
     dataset["test"] = dataset["test"].map(lambda entry: {"label": [entry[label] for label in labels]})
+
+    print(dataset["train"])
+    print(dataset["train"][0])
 
     # collect exactly eight examples of every labeled class in training dataset
     # elegant line of code taken from above guide (line 20)
@@ -82,8 +88,17 @@ def main():
     dataset["train"] = dataset["train"].select_columns(["text", "label"])
     dataset["test"] = dataset["test"].select_columns(["text", "label"])
 
-    # tokenization as specified in the "Fine tuning BERT (and friends)" notebook is not necessary or worthwhile (as far as I know) working with SetFit models
-    # I say this because my sentiment analysis SetFit model did not require me to tokenize the text fields
+    # dataset["train"] is now a collection of 8*num_labels reflections, where there are at least 8
+    # reflections with a certain label (there could be more because the dataset is multi-label)
+    # dataset["train"] has not had any reflections removed. All that has happened to it is that the
+    # labels for each reflection have been encoded into an entry with the form {"label":[0,0,1,...0])
+
+    # therefore, the model will train on eight examples of each label, and metrics will be computed based on
+    # on classifications made from a large set of reflections in a randomized order
+    # no reflection from the test split will be in the train split, so over-fitting should not be a concern
+
+    # tokenization as specified in the "Fine tuning BERT (and friends)" notebook is not necessary or worthwhile
+    # (as far as I know) working with SetFit models. SetFit must tokenize the data behind the scene
 
     # base pretrained model from SetFit library
     model = SetFitModel.from_pretrained("sentence-transformers/all-mpnet-base-v2",
@@ -91,9 +106,8 @@ def main():
                                         multi_target_strategy = "one-vs-rest"
                                         )
 
-    # fine tune pretrained model using datasets using default hyperparameters
-    # doing something like a grid search to optimize hyperparameters looks like it will be impractical because
-    # training the model (at least on my machine) will take many hours - how much speedup can I get on our lab machines?
+    # fine tune pretrained model using datasets using default hyperparameters (will change as I run experiments with
+    # varying hyperparameters, only running default hps for debugging right now)
     trainer = Trainer(
         model = model,
         train_dataset = dataset["train"],
@@ -103,11 +117,18 @@ def main():
 
     trainer.train()
 
-    metrics = trainer.evaluate()
+    metrics = trainer.evaluate() # confusion data
 
     model.push_to_hub("setfit-multilabel-test")
 
     print(metrics)
+    with open("metrics.csv", "w") as m:
+        c_w = csv.writer(m)
+        for key, value in metrics:
+            arr = [key, value]
+            c_w.writerow(arr)
+
+
 
 
 if __name__ == "__main__":
