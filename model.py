@@ -46,6 +46,8 @@ def compute_metrics(y_pred, y_true) -> dict[str, float]:
 
 
 def main():
+    # Text classification using Setfit
+
     # merge array of zeroes and raw data from data folder into correctly formatted files which can be encoded
     # and which the model can be trained/tested on
     # DataPreprocessor.process_data("train", "setfit-dataset-train-new2.xlsx")

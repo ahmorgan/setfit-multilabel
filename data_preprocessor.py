@@ -1,7 +1,8 @@
 from openpyxl import load_workbook
 import csv
 
-# data preprocessor used to populate the excel sheet of zeroes with the raw data
+
+# data preprocessor, used to populate the excel sheet of zeroes with the raw data
 def process_data(dataset, file_name) -> None:
     # access proper excel file for preprocessing
     if dataset == "train":
