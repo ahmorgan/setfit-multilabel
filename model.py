@@ -46,13 +46,10 @@ def compute_metrics(y_pred, y_true) -> dict[str, float]:
 
 
 def main():
-    # Text classification using Setfit
+    # Multi-label text classification using Setfit
 
     # merge array of zeroes and raw data from data folder into correctly formatted files which can be encoded
     # and which the model can be trained/tested on
-    # DataPreprocessor.process_data("train", "setfit-dataset-train-new2.xlsx")
-    # DataPreprocessor.process_data("test", "setfit-dataset-test-new2.xlsx")
-    # multi-label classification using setfit
     # loosely followed https://github.com/NielsRogge/Transformers-Tutorials/blob/master/BERT/Fine_tuning_BERT_(and_friends)_for_multi_label_text_classification.ipynb
 
     # takes raw data from /data and processes it into multi-label confusion matrix for training and testing split
@@ -81,7 +78,7 @@ def main():
     print(dataset["train"][0])
 
     # collect exactly eight examples of every labeled class in training dataset
-    # elegant line of code taken from above guide (line 20)
+    # elegant line of code taken from above medium.com guide
     eight_examples_of_each = numpy.concatenate([numpy.random.choice(numpy.where(dataset["train"][label])[0], 8) for label in labels])
     # replace training dataset with the eight examples of each
     dataset["train"] = dataset["train"].select(eight_examples_of_each)
@@ -105,32 +102,32 @@ def main():
     # base pretrained model from SetFit library
     model = SetFitModel.from_pretrained("sentence-transformers/all-mpnet-base-v2",
                                         # creates a multi-label classification head and uses it in evaluation
-                                        multi_target_strategy = "one-vs-rest"
+                                        multi_target_strategy="one-vs-rest"
                                         )
 
     # fine tune pretrained model using datasets using default hyperparameters (will change as I run experiments with
     # varying hyperparameters, only running default hps for debugging right now)
     trainer = Trainer(
-        model = model,
-        train_dataset = dataset["train"],
-        eval_dataset = dataset["test"],
-        metric = compute_metrics
+        model=model,
+        train_dataset=dataset["train"],
+        eval_dataset=dataset["test"],
+        metric=compute_metrics
     )
 
     trainer.train()
 
-    metrics = trainer.evaluate() # confusion data
+    metrics = trainer.evaluate()  # confusion data
 
-    model.push_to_hub("setfit-multilabel-test")
+    # DON'T push to hub for initial pass of experiment
+    # model.push_to_hub("setfit-multilabel-test")
 
     print(metrics)
+
     with open("metrics.csv", "w") as m:
         c_w = csv.writer(m)
         for key, value in metrics:
             arr = [key, value]
             c_w.writerow(arr)
-
-
 
 
 if __name__ == "__main__":
