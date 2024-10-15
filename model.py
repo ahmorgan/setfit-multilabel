@@ -1,9 +1,12 @@
 from datasets import load_dataset
-from setfit import SetFitModel, Trainer
+from setfit import SetFitModel, Trainer, TrainingArguments
 import numpy
 from sklearn.metrics import multilabel_confusion_matrix
+import os
+
 import data_preprocessor
 import csv
+import torch
 
 
 # Generate a confusion matrix for each label in the dataset. For each column/vector
@@ -16,19 +19,10 @@ def compute_metrics(y_pred, y_true) -> dict[str, float]:
     # list is of size num_labels
     confusion_matrices = multilabel_confusion_matrix(y_true, y_pred)
     # initialize labels
-    labels = ["None",
-              "Python and Coding",
+    labels = ["Python and Coding",
               "Github",
               "MySQL",
-              "Assignments",
-              "Quizzes",
-              "Understanding requirements and instructions",
-              "Learning New Material",
-              "Course Structure and Materials",
-              "Time Management and Motivation",
-              "Group Work",
-              "API",
-              "Project"]
+              "Time Management and Motivation"]
     result = {}
     x = 0
     for matrix in confusion_matrices:
@@ -46,6 +40,9 @@ def compute_metrics(y_pred, y_true) -> dict[str, float]:
 
 
 def main():
+
+    # Reminder: Create presentation for project by end of October for 5-10 min presentation in lab
+
     # Multi-label text classification using Setfit
 
     # merge array of zeroes and raw data from data folder into correctly formatted files which can be encoded
@@ -53,15 +50,18 @@ def main():
     # loosely followed https://github.com/NielsRogge/Transformers-Tutorials/blob/master/BERT/Fine_tuning_BERT_(and_friends)_for_multi_label_text_classification.ipynb
 
     # takes raw data from /data and processes it into multi-label confusion matrix for training and testing split
-    data_preprocessor.process_data(dataset="train", file_name="setfit-dataset-train.csv")
-    data_preprocessor.process_data(dataset="test", file_name="setfit-dataset-test.csv")
+    if len(os.listdir("data-splits")) == 0:
+        data_preprocessor.process_data(dataset="train", file_name="data-splits/setfit-dataset-train.csv")
+        data_preprocessor.process_data(dataset="test", file_name="data-splits/setfit-dataset-test.csv")
 
+    print("Loading datasets...")
     # load two datasets from csv files in dataset dictionary
     dataset = load_dataset('csv', data_files={
-        "train": "setfit-dataset-train.csv",
-        "test": "setfit-dataset-test.csv"
+        "train": "data-splits/setfit-dataset-train.csv",
+        "test": "data-splits/setfit-dataset-test.csv"
     })
 
+    print("Processing datasets...")
     # extract labels
     labels = dataset["train"].column_names
     labels.remove("text")
@@ -73,9 +73,6 @@ def main():
     # ex. {"Time Management":0, "Python and Coding": 1} becomes {"label": [0,1]} (not a real example, just to illustrate what's happening)
     dataset["train"] = dataset["train"].map(lambda entry: {"label": [entry[label] for label in labels]})
     dataset["test"] = dataset["test"].map(lambda entry: {"label": [entry[label] for label in labels]})
-
-    print(dataset["train"])
-    print(dataset["train"][0])
 
     # collect exactly eight examples of every labeled class in training dataset
     # elegant line of code taken from above medium.com guide
@@ -99,11 +96,20 @@ def main():
     # tokenization as specified in the "Fine tuning BERT (and friends)" notebook is not necessary or worthwhile
     # (as far as I know) working with SetFit models. SetFit must tokenize the data behind the scene
 
+    print("Loading model...")
+
     # base pretrained model from SetFit library
-    model = SetFitModel.from_pretrained("sentence-transformers/all-mpnet-base-v2",
+    model = SetFitModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2",
                                         # creates a multi-label classification head and uses it in evaluation
                                         multi_target_strategy="one-vs-rest"
                                         )
+
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    model.to(device)
+
+    args = TrainingArguments(
+        batch_size=16
+    )
 
     # fine tune pretrained model using datasets using default hyperparameters (will change as I run experiments with
     # varying hyperparameters, only running default hps for debugging right now)
@@ -111,11 +117,14 @@ def main():
         model=model,
         train_dataset=dataset["train"],
         eval_dataset=dataset["test"],
-        metric=compute_metrics
+        metric=compute_metrics,
+        args=args
     )
 
+    print("Training...")
     trainer.train()
 
+    print("Testing...")
     metrics = trainer.evaluate()  # confusion data
 
     # DON'T push to hub for initial pass of experiment
@@ -125,9 +134,10 @@ def main():
 
     with open("metrics.csv", "w") as m:
         c_w = csv.writer(m)
-        for key, value in metrics:
-            arr = [key, value]
+        for key in metrics.keys():
+            arr = [key, metrics[key]]
             c_w.writerow(arr)
+    print("Metrics data written to metrics.csv")
 
 
 if __name__ == "__main__":
