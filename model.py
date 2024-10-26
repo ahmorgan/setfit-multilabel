@@ -1,10 +1,7 @@
 from datasets import load_dataset
 from setfit import SetFitModel, Trainer, TrainingArguments
-import numpy
 from sklearn.metrics import multilabel_confusion_matrix
-import os
-
-import data_preprocessor
+import numpy
 import csv
 import torch
 
@@ -40,19 +37,13 @@ def compute_metrics(y_pred, y_true) -> dict[str, float]:
 
 
 def main():
-
-    # Reminder: Create presentation for project by end of October for 5-10 min presentation in lab
-
     # Multi-label text classification using Setfit
 
     # merge array of zeroes and raw data from data folder into correctly formatted files which can be encoded
     # and which the model can be trained/tested on
     # loosely followed https://github.com/NielsRogge/Transformers-Tutorials/blob/master/BERT/Fine_tuning_BERT_(and_friends)_for_multi_label_text_classification.ipynb
 
-    # takes raw data from /data and processes it into multi-label confusion matrix for training and testing split
-    if len(os.listdir("data-splits")) == 0:
-        data_preprocessor.process_data(dataset="train", file_name="data-splits/setfit-dataset-train.csv")
-        data_preprocessor.process_data(dataset="test", file_name="data-splits/setfit-dataset-test.csv")
+    # Datasets are generated using the consensus data parser script
 
     print("Loading datasets...")
     # load two datasets from csv files in dataset dictionary
@@ -104,9 +95,11 @@ def main():
                                         multi_target_strategy="one-vs-rest"
                                         )
 
+    # use cuda capable gpu
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model.to(device)
 
+    # hyperparameters
     args = TrainingArguments(
         batch_size=16
     )
