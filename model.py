@@ -1,6 +1,7 @@
 from datasets import load_dataset
 from setfit import SetFitModel, Trainer, TrainingArguments
 from sklearn.metrics import multilabel_confusion_matrix
+from optuna import Trial
 import numpy
 import csv
 import torch
@@ -33,7 +34,29 @@ def compute_metrics(y_pred, y_true) -> dict[str, float]:
         x += 1
         if x >= len(labels):
             break
+    accuracy = 0.0
+    for label in labels:
+        # 100 is the number of reflections used in evaluation
+        # acc = 100 / num_of_correct_classifications
+        accuracy += (result[f"{label}-tp"] + result[f"{label}-tn"]) / 100
+    accuracy /= len(labels)
+    result.update({"accuracy": accuracy})
     return result
+
+
+# model instantiation for each trial run of the hyperparameter search
+def model_init(params):
+    params = {"multi_target_strategy": "one-vs-rest", "device": torch.device("cuda")}
+    # all-MiniLM-L12-v2 is 33.6M params
+    return SetFitModel.from_pretrained("sentence-transformers/all-MiniLM-L12-v2", **params)
+
+
+# hyperparameters to optimize during hp search
+def hp_space(trial: Trial):
+    return {
+        "body_learning_rate": trial.suggest_float("body_learning_rate", 1e-6, 1e-3, log=True),
+        "num_epochs": trial.suggest_int("num_epochs", 1, 3)
+    }
 
 
 def main():
@@ -89,25 +112,15 @@ def main():
 
     print("Loading model...")
 
-    # base pretrained model from SetFit library
-    model = SetFitModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2",
-                                        # creates a multi-label classification head and uses it in evaluation
-                                        multi_target_strategy="one-vs-rest"
-                                        )
-
-    # use cuda capable gpu
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    model.to(device)
-
-    # hyperparameters
+    # only setting initial batch size, hyperparameter search will cover learning rate and num epochs
     args = TrainingArguments(
-        batch_size=16
+        batch_size=16,
     )
 
     # fine tune pretrained model using datasets using default hyperparameters (will change as I run experiments with
     # varying hyperparameters, only running default hps for debugging right now)
     trainer = Trainer(
-        model=model,
+        model_init=model_init,
         train_dataset=dataset["train"],
         eval_dataset=dataset["test"],
         metric=compute_metrics,
@@ -115,6 +128,16 @@ def main():
     )
 
     print("Training...")
+    # optimizing sentence transformer learning rate and num of epochs
+    best_run = trainer.hyperparameter_search(
+        # compute_objective is the overall accuracy of all labels
+        direction="maximize",  # maximize accuracy
+        hp_space=hp_space,
+        compute_objective=lambda result: result.get("accuracy"),
+        n_trials=20
+    )
+
+    trainer.apply_hyperparameters(best_run.hyperparameters)
     trainer.train()
 
     print("Testing...")
