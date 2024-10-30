@@ -1,5 +1,5 @@
 from datasets import load_dataset
-from setfit import SetFitModel, Trainer, TrainingArguments
+from setfit import SetFitModel, Trainer  # , TrainingArguments
 from sklearn.metrics import multilabel_confusion_matrix
 from optuna import Trial
 import numpy
@@ -38,7 +38,7 @@ def compute_metrics(y_pred, y_true) -> dict[str, float]:
     for label in labels:
         # 100 is the number of reflections used in evaluation
         # acc = 100 / num_of_correct_classifications
-        accuracy += (result[f"{label}-tp"] + result[f"{label}-tn"]) / 100
+        accuracy += (result[f"{label}-tp"] + result[f"{label}-tn"]) / 118
     accuracy /= len(labels)
     result.update({"accuracy": accuracy})
     return result
@@ -90,7 +90,7 @@ def main():
 
     # collect exactly eight examples of every labeled class in training dataset
     # elegant line of code taken from above medium.com guide
-    eight_examples_of_each = numpy.concatenate([numpy.random.choice(numpy.where(dataset["train"][label])[0], 8) for label in labels])
+    eight_examples_of_each = numpy.concatenate([numpy.random.choice(numpy.where(dataset["train"][label])[0], 10) for label in labels])
     # replace training dataset with the eight examples of each
     dataset["train"] = dataset["train"].select(eight_examples_of_each)
 
@@ -113,9 +113,13 @@ def main():
     print("Loading model...")
 
     # only setting initial batch size, hyperparameter search will cover learning rate and num epochs
+    """
     args = TrainingArguments(
         batch_size=16,
+        body_learning_rate=0.00017039160219643772,  # optimal lr determined through hp search
+        num_epochs=1
     )
+    """
 
     # fine tune pretrained model using datasets using default hyperparameters (will change as I run experiments with
     # varying hyperparameters, only running default hps for debugging right now)
@@ -124,7 +128,7 @@ def main():
         train_dataset=dataset["train"],
         eval_dataset=dataset["test"],
         metric=compute_metrics,
-        args=args
+        # args=args
     )
 
     print("Training...")
@@ -136,8 +140,8 @@ def main():
         compute_objective=lambda result: result.get("accuracy"),
         n_trials=20
     )
-
     trainer.apply_hyperparameters(best_run.hyperparameters)
+
     trainer.train()
 
     print("Testing...")
